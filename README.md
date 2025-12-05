@@ -1,5 +1,5 @@
 # samurai_tensorrt_py
-Samurai使用tensorRT python推理
+## Samurai使用tensorRT python推理
 
 requirements:
 - tensorRT >= 10.0.1
@@ -29,3 +29,5 @@ python main.py --video_path <path_to_video> --trt_engine_path <path_to_trt_engin
 or
 python main.py --image_path <path_to_image> --onnx_model_path <path_to_onnx_models> # 将重新构建trt engine
 ```
+
+## tensorRT C++推理版本coming soon
