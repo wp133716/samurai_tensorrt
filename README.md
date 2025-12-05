@@ -2,7 +2,7 @@
 ## 使用tensorRT python推理
 
 requirements:
-- tensorRT >= 10.1.0
+- tensorRT 10+
 - pycuda = 2025.1
 - onnx = 1.17.0
 
