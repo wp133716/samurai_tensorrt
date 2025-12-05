@@ -1,5 +1,5 @@
-# samurai_tensorrt_py
-## Samurai使用tensorRT python推理
+# samurai_tensorrt
+## 使用tensorRT python推理
 
 requirements:
 - tensorRT >= 10.0.1
