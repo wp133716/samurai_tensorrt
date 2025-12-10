@@ -21,20 +21,21 @@ std::vector<cv::Scalar> colors = {
 };
 
 int main(int argc, char** argv) {
-    std::string modelPath = "../../onnx_model";
+    std::string onnxModelPath = "../../onnx_model";
     std::string videoPath = "../../assets/1917.mp4";
 
     if (argc > 1) {
-        modelPath = argv[1];
+        onnxModelPath = argv[1];
     }
-    std::cout << "Using model path: " << modelPath << std::endl;
+    std::cout << "Using onnx model path: " << onnxModelPath << std::endl;
 
     if (argc > 2) {
         videoPath = argv[2];
     }
     std::cout << "Using video path: " << videoPath << std::endl;
 
-    SAM2Tracker tracker(modelPath, true, true);
+    // SAM2Tracker tracker(modelPath, true, true);
+    SAM2Tracker tracker(onnxModelPath, std::string{}, SAM2Config{});
 
     cv::VideoCapture cap(videoPath);
     if(!cap.isOpened()){

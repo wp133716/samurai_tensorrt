@@ -4,6 +4,7 @@ SAM2Tracker::SAM2Tracker(const std::string &onnxModelPath, const std::string &tr
     // loadNetwork(modelPath, useGPU, enableFp16);
 
     // Create our TensorRT inference engine
+    Options options{Precision::FP16, "", 128, 1, 1, 0};
     m_trtEngine = std::make_unique<Engine<float>>(options);
 
     // Build the onnx model into a TensorRT engine file, cache the file to disk, and then load the TensorRT engine file into memory.
@@ -11,7 +12,7 @@ SAM2Tracker::SAM2Tracker(const std::string &onnxModelPath, const std::string &tr
     // The engine file is rebuilt any time the above Options are changed.
     if (!onnxModelPath.empty()) {
         // Build the ONNX model into a TensorRT engine file
-        auto succ = m_trtEngine->buildLoadNetwork(onnxModelPath, SUB_VALS, DIV_VALS, NORMALIZE);
+        auto succ = m_trtEngine->buildLoadNetwork(onnxModelPath + "/image_encoder.onnx");
         if (!succ) {
             const std::string errMsg = "Error: Unable to build or load the TensorRT engine from ONNX model. "
                                        "Try increasing TensorRT log severity to kVERBOSE (in /libs/tensorrt-cpp-api/engine.cpp).";
@@ -19,7 +20,7 @@ SAM2Tracker::SAM2Tracker(const std::string &onnxModelPath, const std::string &tr
         }
     } else if (!trtModelPath.empty()) { // If no ONNX model, check for TRT model
         // Load the TensorRT engine file directly
-        bool succ = m_trtEngine->loadNetwork(trtModelPath, SUB_VALS, DIV_VALS, NORMALIZE);
+        bool succ = m_trtEngine->loadNetwork(trtModelPath);
         if (!succ) {
             throw std::runtime_error("Error: Unable to load TensorRT engine from " + trtModelPath);
         }
@@ -215,17 +216,50 @@ void SAM2Tracker::printDataType(ONNXTensorElementDataType type) {
 void SAM2Tracker::imageEncoderInference(std::vector<float>& frame, std::vector<Ort::Value>& imageEncoderOutputTensors) {
     auto start = std::chrono::high_resolution_clock::now();
 
-    auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-    Ort::Value inputImageTensor = Ort::Value::CreateTensor<float>(memoryInfo, frame.data(), frame.size(),
-                                                            _imageEncoderInputNodeDims[0].data(), _imageEncoderInputNodeDims[0].size());
-    std::vector<Ort::Value> inputTensors;
-    inputTensors.push_back(std::move(inputImageTensor));
-    imageEncoderOutputTensors = _imageEncoderSession->Run(Ort::RunOptions{nullptr},
-                                                                    _imageEncoderInputNodeNames.data(),
-                                                                    inputTensors.data(),
-                                                                    inputTensors.size(),
-                                                                    _imageEncoderOutputNodeNames.data(),
-                                                                    _imageEncoderOutputNodeNames.size());
+    // auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    // Ort::Value inputImageTensor = Ort::Value::CreateTensor<float>(memoryInfo, frame.data(), frame.size(),
+    //                                                         _imageEncoderInputNodeDims[0].data(), _imageEncoderInputNodeDims[0].size());
+    // std::vector<Ort::Value> inputTensors;
+    // inputTensors.push_back(std::move(inputImageTensor));
+    // imageEncoderOutputTensors = _imageEncoderSession->Run(Ort::RunOptions{nullptr},
+    //                                                                 _imageEncoderInputNodeNames.data(),
+    //                                                                 inputTensors.data(),
+    //                                                                 inputTensors.size(),
+    //                                                                 _imageEncoderOutputNodeNames.data(),
+    //                                                                 _imageEncoderOutputNodeNames.size());
+    // Populate the input vectors
+    const auto &inputDims = m_trtEngine->getInputDims();
+
+    // Convert the image from BGR to RGB
+    cv::cuda::GpuMat rgbMat;
+    cv::cuda::cvtColor(gpuImg, rgbMat, cv::COLOR_BGR2RGB);
+
+    auto resized = rgbMat;
+
+    // Resize to the model expected input size while maintaining the aspect ratio with the use of padding
+    if (resized.rows != inputDims[0].d[1] || resized.cols != inputDims[0].d[2]) {
+        // Only resize if not already the right size to avoid unecessary copy
+        resized = Engine<float>::resizeKeepAspectRatioPadRightBottom(rgbMat, inputDims[0].d[1], inputDims[0].d[2]);
+    }
+
+    // Convert to format expected by our inference engine
+    // The reason for the strange format is because it supports models with multiple inputs as well as batching
+    // In our case though, the model only has a single input and we are using a batch size of 1.
+    std::vector<cv::cuda::GpuMat> input{std::move(resized)};
+    std::vector<std::vector<cv::cuda::GpuMat>> inputs{std::move(input)};
+
+    // These params will be used in the post-processing stage
+    m_imgHeight = rgbMat.rows;
+    m_imgWidth = rgbMat.cols;
+    m_ratio = 1.f / std::min(inputDims[0].d[2] / static_cast<float>(rgbMat.cols), inputDims[0].d[1] / static_cast<float>(rgbMat.rows));
+
+
+    std::vector<std::vector<std::vector<float>>> featureVectors;
+
+    bool succ = m_trtEngine.runInference(inputs, featureVectors);
+    if (!succ) {
+        throw std::runtime_error("Unable to run inference.");
+    }
     
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start);
     std::cout << "image_encoder spent: " << duration.count() << " ms" << std::endl;

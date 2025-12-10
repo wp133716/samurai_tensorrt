@@ -3,6 +3,8 @@
 
 #include "engine.h"
 
+#include <onnxruntime_cxx_api.h>
+
 #include <opencv2/opencv.hpp>
 #include <eigen3/Eigen/Dense>
 #include <vector>
@@ -85,8 +87,8 @@ private:
     void printDataType(ONNXTensorElementDataType type);
 
     // // ONNXRuntime related
-    // Ort::Env _env{ORT_LOGGING_LEVEL_WARNING, "SAM2Tracker"};
-    // Ort::SessionOptions _sessionOptions{nullptr};
+    Ort::Env _env{ORT_LOGGING_LEVEL_WARNING, "SAM2Tracker"};
+    Ort::SessionOptions _sessionOptions{nullptr};
 
     // TensorRT Engine
     std::unique_ptr<Engine<float>> m_trtEngine = nullptr;

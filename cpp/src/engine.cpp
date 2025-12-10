@@ -23,7 +23,7 @@ void Logger::log(Severity severity, const char *msg) noexcept {
     // log to the console.
 
     // Only log Warnings or more important.
-    if (severity <= Severity::kWARNING) {
+    if (severity <= Severity::kINFO) {
         std::cout << msg << std::endl;
     }
 }

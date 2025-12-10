@@ -399,11 +399,11 @@ bool Engine<T>::build(std::string onnxModelPath, const std::array<float, 3> &sub
         return false;
     }
 
-    // Define an explicit batch size and then create the network (implicit batch
+    // Define an strongly typed size and then create the network (explicit batch
     // size is deprecated). More info here:
-    // https://docs.nvidia.com/deeplearning/tensorrt/developer-guide/index.html#explicit-implicit-batch
-    auto explicitBatch = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
-    auto network = std::unique_ptr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(explicitBatch));
+    // https://docs.nvidia.com/deeplearning/tensorrt/latest/inference-library/advanced.html#strongly-typed-networks
+    auto strongTyped = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kSTRONGLY_TYPED);
+    auto network = std::unique_ptr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(strongTyped));
     if (!network) {
         return false;
     }
@@ -434,10 +434,12 @@ bool Engine<T>::build(std::string onnxModelPath, const std::array<float, 3> &sub
 
     // Ensure that all the inputs have the same batch size
     const auto numInputs = network->getNbInputs();
+    std::cout << "Number of inputs in the model: " << numInputs << std::endl;
     if (numInputs < 1) {
         throw std::runtime_error("Error, model needs at least 1 input!");
     }
     const auto input0Batch = network->getInput(0)->getDimensions().d[0];
+    std::cout << "Model input0Batch " << input0Batch << std::endl;
     for (int32_t i = 1; i < numInputs; ++i) {
         if (network->getInput(i)->getDimensions().d[0] != input0Batch) {
             throw std::runtime_error("Error, the model has multiple inputs, each "
@@ -472,23 +474,28 @@ bool Engine<T>::build(std::string onnxModelPath, const std::array<float, 3> &sub
         const auto input = network->getInput(i);
         const auto inputName = input->getName();
         const auto inputDims = input->getDimensions();
-        int32_t inputC = inputDims.d[1];
-        int32_t inputH = inputDims.d[2];
-        int32_t inputW = inputDims.d[3];
+        std::cout << "Input " << i << " name: " << inputName << std::endl;
+        std::cout << "Input " << i << " dimensions: " << inputDims.nbDims << std::endl;
+
+        int32_t inputH = inputDims.d[1];
+        int32_t inputW = inputDims.d[2];
+        int32_t inputC = inputDims.d[3];
+
+        std::cout << "Input " << i << " shape: (" << inputC << ", " << inputH << ", " << inputW << ")" << std::endl;
 
         // Specify the optimization profile`
         if (doesSupportDynamicBatch) {
             optProfile->setDimensions(inputName, nvinfer1::OptProfileSelector::kMIN, nvinfer1::Dims4(1, inputC, inputH, inputW));
         } else {
             optProfile->setDimensions(inputName, nvinfer1::OptProfileSelector::kMIN,
-                                      nvinfer1::Dims4(m_options.optBatchSize, inputC, inputH, inputW));
+                                      nvinfer1::Dims4(m_options.optBatchSize, inputH, inputW, inputC));
         }
         optProfile->setDimensions(inputName, nvinfer1::OptProfileSelector::kOPT,
-                                  nvinfer1::Dims4(m_options.optBatchSize, inputC, inputH, inputW));
+                                  nvinfer1::Dims4(m_options.optBatchSize, inputH, inputW, inputC));
         optProfile->setDimensions(inputName, nvinfer1::OptProfileSelector::kMAX,
-                                  nvinfer1::Dims4(m_options.maxBatchSize, inputC, inputH, inputW));
+                                  nvinfer1::Dims4(m_options.maxBatchSize, inputH, inputW, inputC));
     }
-    config->addOptimizationProfile(optProfile);
+    // config->addOptimizationProfile(optProfile);
 
     // Set the precision level
     const auto engineName = serializeEngineOptions(m_options, onnxModelPath);
@@ -497,7 +504,7 @@ bool Engine<T>::build(std::string onnxModelPath, const std::array<float, 3> &sub
         if (!builder->platformHasFastFp16()) {
             throw std::runtime_error("Error: GPU does not support FP16 precision");
         }
-        config->setFlag(nvinfer1::BuilderFlag::kFP16);
+        // config->setFlag(nvinfer1::BuilderFlag::kFP16);
     } else if (m_options.precision == Precision::INT8) {
         if (numInputs > 1) {
             throw std::runtime_error("Error, this implementation currently only supports INT8 "
@@ -531,7 +538,7 @@ bool Engine<T>::build(std::string onnxModelPath, const std::array<float, 3> &sub
     // CUDA stream used for profiling by the builder.
     cudaStream_t profileStream;
     Util::checkCudaErrorCode(cudaStreamCreate(&profileStream));
-    config->setProfileStream(profileStream);
+    // config->setProfileStream(profileStream);
 
     // Build the engine
     // If this call fails, it is suggested to increase the logger verbosity to
